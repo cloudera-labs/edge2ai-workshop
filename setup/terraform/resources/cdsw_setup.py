@@ -173,7 +173,7 @@ print('Set unauthenticated access flag to: %s'% (r.json()["allow_unauthenticated
 
 print('# Add project for Data Visualization server')
 project_name = 'viz'
-project_id = None
+viz_project_id = None
 r = s.get(CDSW_API + '/users/admin/projects')
 for project in r.json():
     if project['name'] == project_name:
