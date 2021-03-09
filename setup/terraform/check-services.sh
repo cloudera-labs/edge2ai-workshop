@@ -17,7 +17,7 @@ fi
 NAMESPACE=$1
 load_env $NAMESPACE
 
-printf "%-30s %-30s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %s\n" "instance" "ip address" "WEB" "CM" "CEM" "NIFI" "NREG" "SREG" "SMM" "HUE" "CDSW" "Model Status"
+printf "%-30s %-20s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-14s %s\n" "instance" "ip address" "WEB" "CM" "CEM" "NIFI" "NREG" "SREG" "SMM" "HUE" "CDSW" "Model Status" "Viz Status" 
 ensure_tf_json_file
 if [ -s $TF_JSON_FILE ]; then
   cat $TF_JSON_FILE | \
@@ -36,7 +36,10 @@ if [ -s $TF_JSON_FILE ]; then
     (("${CURL[@]}" http://cdsw.$ip.nip.io/           || "${CURL[@]}" https://cdsw.$ip.nip.io/)           2>/dev/null | egrep "(Cloudera Machine Learning|Cloudera Data Science Workbench)" > /dev/null 2>&1 && echo Ok) > .curl.cml.$$ &
     (token=$("${CURL[@]}" -X POST --cookie-jar .curl.cj.$$ --cookie .curl.cj.$$ -H "Content-Type: application/json" --data '{"_local":false,"login":"admin","password":"'"${THE_PWD}"'"}' "$CDSW_API/authenticate" 2>/dev/null | jq -r '.auth_token' 2> /dev/null) && \
      "${CURL[@]}" -X POST --cookie-jar .curl.cj.$$ --cookie .curl.cj.$$ -H "Content-Type: application/json" -H "Authorization: Bearer $token" --data '{"projectOwnerName":"admin","latestModelDeployment":true,"latestModelBuild":true}' "$CDSW_ALTUS_API/models/list-models" 2>/dev/null | jq -r '.[].latestModelDeployment | select(.model.name == "IoT Prediction Model").status' 2>/dev/null) > .curl.model.$$ &
+    (token=$("${CURL[@]}" -X POST --cookie-jar .curl.cj.$$ --cookie .curl.cj.$$ -H "Content-Type: application/json" --data '{"_local":false,"login":"admin","password":"supersecret1"}' "$CDSW_API/authenticate" 2>/dev/null | jq -r '.auth_token' 2> /dev/null) && \
+     "${CURL[@]}" -X POST --cookie-jar .curl.cj.$$ --cookie .curl.cj.$$ -H "Content-Type: application/json" -H "Authorization: Bearer $token" --data '{"projectOwnerName":"admin","latestModelDeployment":true,"latestModelBuild":true}' "$CDSW_ALTUS_API/models/list-models" 2>/dev/null | jq -r '.[].latestModelDeployment | select(.model.name == "IoT Prediction Model").status' 2>/dev/null) > .curl.viz.$$ &
+     
     wait
-    printf "%-30s %-30s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %s\n" "$instance" "$ip" "$(cat .curl.web.$$)" "$(cat .curl.cm.$$)" "$(cat .curl.cem.$$)" "$(cat .curl.nifi.$$)" "$(cat .curl.nifireg.$$)" "$(cat .curl.schreg.$$)" "$(cat .curl.smm.$$)" "$(cat .curl.hue.$$)" "$(cat .curl.cml.$$)" "$(cat .curl.model.$$)"
+    printf "%-30s %-20s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-5s %-14s %s\n" "$instance" "$ip" "$(cat .curl.web.$$)" "$(cat .curl.cm.$$)" "$(cat .curl.cem.$$)" "$(cat .curl.nifi.$$)" "$(cat .curl.nifireg.$$)" "$(cat .curl.schreg.$$)" "$(cat .curl.smm.$$)" "$(cat .curl.hue.$$)" "$(cat .curl.cml.$$)" "$(cat .curl.model.$$)" "$(cat .curl.viz.$$)"
   done | sort -t\[ -k1,1r -k2,2n
 fi
