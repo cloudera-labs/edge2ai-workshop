@@ -9,7 +9,7 @@ In this workshop you'll implement a data pipeline, using NiFi to ingest data fro
 * *Lab 3* - On the NiFi cluster, prepare the data and send it to the *Kafka* cluster.
 * *Lab 4* - On the *Streams Messaging Manager (SMM)* Web UI, monitor the Kafka cluster and confirm data is being ingested correctly.
 * *Lab 5* - Use NiFi to consume each record from *Kafka* and save results to *Kudu*.
-* *Lab 6* - Check the data on Kudu.
+* *Lab 6* - Visualize Kudu data in real-time
 * *Lab 7* - Apache Flink- your friend for streaming use cases
 
 [[lab_1, Lab 1]]
@@ -440,7 +440,7 @@ We're ready now to run and test our flow. Follow the steps below:
 image::images/kudu_success_lite.png[width=800]
 
 [[lab_6, Lab 6]]
-== Lab 6 - Check the data on Kudu
+== Lab 6 - Visualize Kudu data in real-time
 
 In this lab, you will run some SQL queries using the Impala engine and verify that the Kudu table is being updated as expected.
 
