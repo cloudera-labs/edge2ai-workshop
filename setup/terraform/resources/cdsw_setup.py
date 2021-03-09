@@ -165,6 +165,12 @@ print('Model ID: %s' % (model_id,))
 
 # ================================================================================
 
+# See https://docs.cloudera.com/cdsw/latest/analytical-apps/topics/cdsw-application-limitations.html
+
+print('# Allow applications to be configured with unauthenticated access')
+r = s.patch(CDSW_API + '/site/config', json={"allow_unauthenticated_access_to_app": True})
+print('Set unauthenticated access flag to: %s'% (r.json()["allow_unauthenticated_access_to_app"],))
+
 print('# Add project for Data Visualization server')
 project_name = 'viz'
 project_id = None
@@ -173,7 +179,7 @@ for project in r.json():
     if project['name'] == project_name:
         viz_project_id = project['id']
         break
-if not project_id:
+if not viz_project_id:
     r = s.post(CDSW_API + '/users/admin/projects', json={'template': 'blank',
                                                          'project_visibility': 'private',
                                                          'name': project_name})
@@ -205,6 +211,7 @@ print('# Create application with Data Visualization server')
 application_name = 'viz'
 
 params = { 
+    'bypass_authentication': True,
     'cpu': 1,
     'environment': {},
     'description': 'viz server app',
@@ -252,9 +259,11 @@ while True:
 while True:
     r = s.get(CDSW_API + '/projects/admin/viz/applications')
     app_status = r.json()[0]['status']
+    app_id
     print('Data Visualization app status: %s' % (app_status))
     if app_status == 'running':
-        break
+      print('# Viz server app is running. CDSW setup complete!')
+      break
     elif build_status == 'stopped':
         # Additional error handling - if the app exists and is stopped, start it?
         break
