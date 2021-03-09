@@ -406,7 +406,7 @@ image::images/impala_editor.png[width=800]
 CREATE TABLE sensors
 (
  sensor_id INT,
- sensor_ts TIMESTAMP,
+ sensor_ts STRING,
  sensor_0 DOUBLE,
  sensor_1 DOUBLE,
  sensor_2 DOUBLE,
