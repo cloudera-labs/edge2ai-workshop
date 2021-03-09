@@ -151,7 +151,7 @@ Schema Registry:        HortonworksSchemaRegistry
 
 . Enable the *JsonTreeReader* and the *JsonRecordSetWriter* Controller Services you just created, by clicking on their respective _lightning bolt_ icons (image:images/enable_icon.png[width=20]).
 +
-image::images/controller_services.png[width=800]
+image::images/controller_services.png[width=500]
 
 === Creating the flow
 
@@ -159,7 +159,7 @@ image::images/controller_services.png[width=800]
 
 . Inside the process group, add a new _ConsumeMQTT_  processor.
 +
-image::images/add_ConsumeMQTT_lite.png[width=800]
+image::images/add_ConsumeMQTT_lite.png[width=500]
 
 +
 *PROPERTIES* tab:
@@ -487,7 +487,7 @@ Username:                 [leave blank]
 Password:                 [leave blank]
 ----
 +
-image::images/viz_new_connection_basic.png[width=800]
+image::images/viz_new_connection_basic.png[width=500]
 +
 On the *Advanced* tab set the following:
 +
@@ -498,7 +498,7 @@ Socket type:           normal
 Authentication mode:   NoSasl
 ----
 +
-image::images/viz_new_connection_advanced.png[width=800]
+image::images/viz_new_connection_advanced.png[width=500]
 +
 When both tabs have been filled, test the connection. You should see "Connection Verified". Hit Connect.
 
