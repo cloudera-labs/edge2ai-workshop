@@ -460,9 +460,44 @@ ORDER by sensor_ts DESC
 LIMIT 100;
 ----
 +
-. Run the queries a few times \and verify that the number of sensor readings are increasing as the data is ingested into the Kudu table. This allows you to build real-time reports for fast action.
+. Run the queries a few times and verify that the number of sensor readings are increasing as the data is ingested into the Kudu table.
 +
 image::images/table_select_lite.png[width=800]
++
+. We will now create a simple interactive real-time dashboard. Open CDP Data Visualization and log in. Select the Data tab and click NEW CONNECTION.
+
+Similarly to the example above, we will use the Impala engine to tun the queries behind the dashboard. We will set up a new connection to the Impala engine running on our cluster.
++
+On the top of the form, please set:
++
+[source]
+----
+Connection type:   Impala
+Connection name:   Local Impala
+----
++
+On the *Basic* tab set the following:
+(In the Hostname or IP address field please enter the full public hostname of your cluster - you can find this on your cluster details page)
++
+[source]
+----
+Hostname or IP address:   ec2-x-x-x-x.eu-central-1.compute.amazonaws.com (replace with your exact public hostname - *not* your cluster IP)
+Port #:                   21050
+Username:                 [leave blank]
+Password:                 [leave blank]
+----
++
+On the *Advanced* tab set the following:
++
+[source]
+----
+Connection mode:       binary
+Socket type:           normal
+Authentication mode:   NoSasl
+----
+
+When both tabs have been filled, test the connection. You should see "Connection Verified". Hit Connect.
+
 
 [[lab_7, Lab 7]]
 == Lab 7 - Apache Flink- your friend for streaming use cases
