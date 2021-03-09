@@ -487,6 +487,8 @@ Username:                 [leave blank]
 Password:                 [leave blank]
 ----
 +
+image::images/viz_new_connection_basic.png[width=800]
++
 On the *Advanced* tab set the following:
 +
 [source]
@@ -495,6 +497,8 @@ Connection mode:       binary
 Socket type:           normal
 Authentication mode:   NoSasl
 ----
++
+image::images/viz_new_connection_advanced.png[width=800]
 +
 When both tabs have been filled, test the connection. You should see "Connection Verified". Hit Connect.
 
