@@ -13,9 +13,9 @@ In this workshop you will use SQL Stream Builder to query and manipulate data st
 
 == Introduction
 
-In this lab, and the subsequent ones, we will use the `iot_enriched` topic created and populated in previous labs and contains a datastream of computer performance data points.
+In this lab, and the subsequent ones, we will use the `iot` topic created and populated in previous labs and contains a datastream of computer performance data points.
 
-So let's start with a straightforward goal: to query the contents of the `iot_enriched` topic using SQL to examine the data that is being streamed.
+So let's start with a straightforward goal: to query the contents of the `iot` topic using SQL to examine the data that is being streamed.
 
 Albeit simple, this task will show the ease of use and power of SQL Stream Builder (SSB).
 
@@ -50,7 +50,7 @@ image::images/ssb-add-kafka-provider.png[width=400]
 [[lab_2, Lab 2]]
 == Lab 2 - Create a Source Virtual Table
 
-Now we can _map_ the `iot_enriched` topic to a _virtual table_ that we can reference in our query. _Virtual Tables_ on SSB are a way to associate a Kafka topic with a schema so that we can use that as a table in our queries. There are two types of virtual tables in SSB: _Source_ and _Sink_.
+Now we can _map_ the `iot` topic to a _virtual table_ that we can reference in our query. _Virtual Tables_ on SSB are a way to associate a Kafka topic with a schema so that we can use that as a table in our queries. There are two types of virtual tables in SSB: _Source_ and _Sink_.
 
 We will use a Source Virtual Table now to read from the topic. Later we will look into Sink Virtual Tables to write data to Kafka.
 
@@ -62,9 +62,9 @@ image::images/ssb-add-source-virtual-table.png[width=800]
 +
 [source,yaml]
 ----
-Virtual table name: iot_enriched_source
+Virtual table name: iot_source
 Kafka Cluster:      edge2ai-kafka
-Topic Name:         iot_enriched
+Topic Name:         iot
 Data Format:        JSON
 ----
 +
@@ -78,7 +78,7 @@ image::images/ssb-detect-schema.png[width=400]
 +
 The serialized record read from Kafka is provided to the Javascript code in the `record` variable. The last command of the transformation must return the serialized content of the modified record.
 +
-The data in the `iot_enriched` topic has a timestamp expressed in microseconds. Let's say we need the value in seconds. Let's write a transformation to perform that conversion for us at the source.
+The data in the `iot` topic has a timestamp expressed in microseconds. Let's say we need the value in seconds. Let's write a transformation to perform that conversion for us at the source.
 +
 Click on the *Transformations* tab and enter the following code in the *Code* field:
 +
@@ -117,7 +117,7 @@ If your environment is healthy and all the steps from previous labs were complet
 [source,sql]
 ----
 select *
-from iot_enriched_source
+from iot_source
 ----
 +
 image::images/ssb-compose-sql.png[width=800]
@@ -132,13 +132,13 @@ image::images/ssb-compose-sql.png[width=800]
 +
 image::images/ssb-sql-execution.png[width=800]
 
-. After a few seconds the SQL Console will start showing the results of the query coming from the `iot_enriched` topic.
+. After a few seconds the SQL Console will start showing the results of the query coming from the `iot` topic.
 +
 The data displayed on the screen is only a sample of the data returned by the query, not the full data.
 +
 image::images/ssb-sql-results.png[width=800]
 +
-Note that the values of the column `sensor_ts` now show in seconds instead of microseconds, thanks to the transformation we created for the `iot_enriched_source` virtual table.
+Note that the values of the column `sensor_ts` now show in seconds instead of microseconds, thanks to the transformation we created for the `iot_source` virtual table.
 
 [[lab_4, Lab 4]]
 == Lab 4 - Computing and storing agregation results
@@ -193,7 +193,7 @@ SELECT
   min(sensor_6) as sensorMin,
   max(sensor_6) as sensorMax,
   sum(case when sensor_6 > 70 then 1 else 0 end) as sensorGreaterThan60
-FROM iot_enriched_source
+FROM iot_source
 GROUP BY
   HOP(eventTimestamp, INTERVAL '1' SECOND, INTERVAL '30' SECOND)
 ----
@@ -212,11 +212,11 @@ image::images/ssb-select-sink.png[width=800]
 +
 image::images/ssb-sql-execution.png[width=800]
 
-. After a few seconds the SQL Console will start showing the results of the query coming from the `iot_enriched` topic.
+. After a few seconds the SQL Console will start showing the results of the query coming from the `iot` topic.
 +
 The data displayed on the screen is only a sample of the data returned by the query, not the full data.
 +
-image::images/ssb-sql-results.png[width=800]
+image::images/ssb-sql-results-2.png[width=800]
 
 . Check the job execution details and logs by clicking on *Console* (on the left bar) *> SQL Jobs* tab. Explore the options on this screen:
 +
