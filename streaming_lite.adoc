@@ -472,7 +472,7 @@ SELECT microseconds_add(from_unixtime(cast(cast(sensor_ts as bigint)/1000000 as 
 FROM sensors;
 ----
 +
-image::images/table_select_lite.png[width=800]
+image::images/hue_timestamp_fixed.png[width=800]
 +
 . We will now create a simple interactive real-time dashboard. Open CDP Data Visualization and log in. Select the Data tab and click NEW CONNECTION.
 +
