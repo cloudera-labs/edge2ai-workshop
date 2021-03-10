@@ -259,7 +259,6 @@ while True:
 while True:
     r = s.get(CDSW_API + '/projects/admin/viz/applications')
     app_status = r.json()[0]['status']
-    app_id
     print('Data Visualization app status: %s' % (app_status))
     if app_status == 'running':
       print('# Viz server app is running. CDSW setup complete!')
