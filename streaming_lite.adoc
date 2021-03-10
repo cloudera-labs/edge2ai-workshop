@@ -512,6 +512,27 @@ image::images/viz_new_connection_advanced.png[width=500]
 +
 When both tabs have been filled, test the connection. You should see "Connection Verified". Hit Connect.
 
+. We can explore the databases and tables of the newly added connection. From the newly created Impala connection open the default database and select "sensors". A preview with sample data will be loaded.
++
+image::images/viz_connection_explorer_table.png[width=800]
++
+Click on "New dataset" and name the dataset "sensor data"
++
+image::images/viz_new_dataset.png[width=400]
++
+Before we create our dashboard, we will need to apply the timestamp fix that we have implemented earlier. In order to do that, open the new dataset and select the "Fields" tab and click "Edit fields". In the the Dimensions list you can find the field "sensor_ts". Open the drop-down menu and click "Clone".
+image::images/viz_clone_field.png[width=400]
++
+A new dimension "Copy of sensor_ts" will appear. Again, open the drop down in this new row, and select "Edit field". This will open a pop-up window. Change the name in Display name to "sensor_timestamp", and click the "Expression" tab. We can define an expression here which will be evaluated and the return value will be assigned to our newly created "sensor_timestamp" computed field.
++
+Paste the following in the Expression text field:
++
+[source,sql]
+----
+microseconds_add(from_unixtime(cast(cast([sensor_ts] as bigint)/1000000 as bigint),"yyyy-MM-dd HH:mm:ss"),cast(right([sensor_ts],6) as INT))
+----
++
+image::images/viz_add_expression.png[width=600]
 
 [[lab_7, Lab 7]]
 == Lab 7 - Apache Flink- your friend for streaming use cases
