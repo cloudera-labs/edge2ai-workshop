@@ -462,6 +462,16 @@ LIMIT 100;
 +
 . Run the queries a few times and verify that the number of sensor readings are increasing as the data is ingested into the Kudu table.
 +
+image::images/hue_timestamp_problem.png[width=400]
++
+You will notice that the data in the sensor_ts field has a potential data quality issue. The values should be timestamps, but they arrive as UNIX timestamps with milliseconds. In order to show the timestamp properly, we need to run a slightly modified version of the query:
++
+[source,sql]
+----
+SELECT microseconds_add(from_unixtime(cast(cast(sensor_ts as bigint)/1000000 as bigint),"yyyy-MM-dd HH:mm:ss"),cast(right(sensor_ts,6) as INT))
+FROM sensors;
+----
++
 image::images/table_select_lite.png[width=800]
 +
 . We will now create a simple interactive real-time dashboard. Open CDP Data Visualization and log in. Select the Data tab and click NEW CONNECTION.
