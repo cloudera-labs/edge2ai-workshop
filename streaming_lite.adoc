@@ -563,4 +563,4 @@ image::images/viz_dashboard_view.png[width=500]
 
 [[lab_7, Lab 7]]
 == Lab 7 - Apache Flink - your friend for streaming use cases
-* click here for the next Lab: link:sql_stream_builder.adoc[Querying streams with SQL]
+* click here for the next Lab: link:sql_stream_builder_lite.adoc[Querying streams with SQL]
