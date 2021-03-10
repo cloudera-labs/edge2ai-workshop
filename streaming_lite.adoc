@@ -462,7 +462,7 @@ LIMIT 100;
 +
 . Run the queries a few times and verify that the number of sensor readings are increasing as the data is ingested into the Kudu table.
 +
-image::images/hue_timestamp_problem.png[width=400]
+image::images/hue_timestamp_issue.png[width=400]
 +
 You will notice that the data in the sensor_ts field has a potential data quality issue. The values should be timestamps, but they arrive as UNIX timestamps with milliseconds. In order to show the timestamp properly, we need to run a slightly modified version of the query:
 +
