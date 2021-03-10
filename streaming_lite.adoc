@@ -519,8 +519,8 @@ image::images/viz_connection_explorer_table.png[width=800]
 Click on "New dataset" and name the dataset "sensor data"
 +
 image::images/viz_new_dataset.png[width=400]
-+
-Before we create our dashboard, we will need to apply the timestamp fix that we have implemented earlier. In order to do that, open the new dataset and select the "Fields" tab and click "Edit fields". In the the Dimensions list you can find the field "sensor_ts". Open the drop-down menu and click "Clone".
+
+. Before we create our dashboard, we will need to apply the timestamp fix that we have implemented earlier. In order to do that, open the new dataset and select the "Fields" tab and click "Edit fields". In the the Dimensions list you can find the field "sensor_ts". Open the drop-down menu and click "Clone".
 +
 image::images/viz_clone_field.png[width=400]
 +
@@ -541,6 +541,25 @@ image::images/viz_save_dataset.png[width=600]
 +
 Now that our dataset is complete and we fixed the data quality issue on the fly, we can create our dashboard. Please click "New dashboard" in the top right corner.
 
+. When the dashboard editor opens we can see a table visual created by default with all fields displayed.
++
+image::images/viz_create_dashboard.png[width=800]
++
+Let's make some quick changes to this visual to create our real-time dashboard. With the table visual highlighter, open the Build tab on the right of the screen and highlight in the Measures box. Now you can click on the fields "sensor_0" and "sensor_1", these will be added as measures. We can change the default aggregation from max() to avg() by selecting one of the newly added field and opening "Aggregates" and selecting "Average". Let's do this for both measures.
++
+image::images/viz_dashboard_add_measures.png[width=400]
++
+As for dimensions, let's add the fields "sensor_timestamp" and "sensor_id". Highlight "sensor_timestamp" and from "Order and Top K" select "Descending". This will show the values in the table visual in descending order with the newest sensor readings on top. Click "Refresh visual.
++
+image::images/viz_dashboard_add_dimensions.png[width=400]
++
+Finally, select the "Settings" tab on the right of the screen and change the value for "Auto-refresh period (sec)" to 5.
++
+image::images/viz_dashboard_auto_refresh.png[width=400]
++
+Now our dashboard is complete. Notice that the data in the table is already updated automatically. As a final step, hit Save on the top of the dashboard to save the changes and click View to enter view / publish mode. This is what your dashboard consumers will see - the sensor reading coming in through our streaming timeline, displayed in an real-time dashboard.
++
+image::images/viz_dashboard_view.png[width=500]
 
 [[lab_7, Lab 7]]
 == Lab 7 - Apache Flink- your friend for streaming use cases
