@@ -521,6 +521,7 @@ Click on "New dataset" and name the dataset "sensor data"
 image::images/viz_new_dataset.png[width=400]
 +
 Before we create our dashboard, we will need to apply the timestamp fix that we have implemented earlier. In order to do that, open the new dataset and select the "Fields" tab and click "Edit fields". In the the Dimensions list you can find the field "sensor_ts". Open the drop-down menu and click "Clone".
++
 image::images/viz_clone_field.png[width=400]
 +
 A new dimension "Copy of sensor_ts" will appear. Again, open the drop down in this new row, and select "Edit field". This will open a pop-up window. Change the name in Display name to "sensor_timestamp", and click the "Expression" tab. We can define an expression here which will be evaluated and the return value will be assigned to our newly created "sensor_timestamp" computed field.
@@ -533,6 +534,13 @@ microseconds_add(from_unixtime(cast(cast([sensor_ts] as bigint)/1000000 as bigin
 ----
 +
 image::images/viz_add_expression.png[width=600]
++
+Validate the expression and click "Apply". You can see that the field has been updated. Save you changes by clicking the green "Save" button.
++
+image::images/viz_save_dataset.png[width=600]
++
+Now that our dataset is complete and we fixed the data quality issue on the fly, we can create our dashboard. Please click "New dashboard" in the top right corner.
+
 
 [[lab_7, Lab 7]]
 == Lab 7 - Apache Flink- your friend for streaming use cases
