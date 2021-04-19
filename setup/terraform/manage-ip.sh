@@ -24,6 +24,10 @@ ACTION=$2
 IP_ADDRESS=$3
 load_env $NAMESPACE
 
+if [[ $(echo "$IP_ADDRESS" | tr "a-z" "A-Z") == "MYIP" ]]; then
+  IP_ADDRESS=$(curl -s ifconfig.me)
+fi
+
 cluster_sg=$(security_groups cluster)
 web_sg=$(security_groups web)
 

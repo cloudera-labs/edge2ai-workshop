@@ -38,15 +38,6 @@ if [[ ! $PUBLIC_IP =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
   echo "ERROR: Could not retrieve public IP for this instance. Probably a transient error. Please try again."
   exit 1
 fi
-export PUBLIC_DNS=$(curl http://169.254.169.254/latest/meta-data/public-hostname)
-if [ "$PUBLIC_DNS" == "" ]; then
-  echo "ERROR: Could not retrieve public DNS for this instance. Probably a transient error. Please try again."
-  exit 1
-fi
-export PRIVATE_DNS=$(curl http://169.254.169.254/latest/meta-data/local-hostname)
-export PRIVATE_IP=$(curl http://169.254.169.254/latest/meta-data/local-ipv4)
-export CLUSTER_HOST=$PUBLIC_DNS
-export CDSW_DOMAIN=cdsw.${PUBLIC_IP}.nip.io
 
 function enable_py3() {
   if [[ $(which python) != /opt/rh/rh-python36/root/usr/bin/python ]]; then
@@ -104,7 +95,6 @@ if [[ ! -f $CM_REPO_FILE ]]; then
   echo "-- Install CM repo"
   if [ "${CM_REPO_AS_TARBALL_URL:-}" == "" ]; then
     retry_if_needed 5 5 "wget --progress=dot:giga $wget_basic_auth '${CM_REPO_FILE_URL}' -O '$CM_REPO_FILE'"
-    sed -i -E "s#https?://[^/]*#${CM_BASE_URL}#g" $CM_REPO_FILE
   else
     sed -i.bak 's/^ *Listen  *.*/Listen 3333/' /etc/httpd/conf/httpd.conf
     systemctl start httpd
@@ -171,7 +161,8 @@ EOF
   systemctl disable postgresql-10
 
   echo "-- Handle additional installs"
-  npm install --quiet forever -g
+  # NPM install is flaky and fails intermittently so we will retry if needed
+  retry_if_needed 5 5 "npm install --quiet forever -g"
   enable_py3
   pip install --quiet --upgrade pip
   pip install --progress-bar off cm_client paho-mqtt pytest nipyapi psycopg2-binary pyyaml jinja2 impyla
@@ -228,8 +219,8 @@ EOF
 's#^efm.event.maxAgeToKeep.debug=.*#efm.event.maxAgeToKeep.debug=5m#;'\
 's#^efm.db.url=.*#efm.db.url=jdbc:postgresql://edge2ai-1.dim.local:5432/efm#;'\
 's#^efm.db.driverClass=.*#efm.db.driverClass=org.postgresql.Driver#;'\
-'s#^efm.db.password=.*#efm.db.password=supersecret1#' /opt/cloudera/cem/efm/conf/efm.properties
-  echo -e "\nefm.encryption.password=supersecret1supersecret1" >> /opt/cloudera/cem/efm/conf/efm.properties
+'s#^efm.db.password=.*#efm.db.password='"${THE_PWD}"'#' /opt/cloudera/cem/efm/conf/efm.properties
+  echo -e "\nefm.encryption.password=${THE_PWD}${THE_PWD}" >> /opt/cloudera/cem/efm/conf/efm.properties
 
   echo "-- Install and configure MiNiFi"
   MINIFI_TARBALL=$(find /opt/cloudera/cem/ -name "minifi-[0-9]*-bin.tar.gz")
@@ -269,7 +260,7 @@ EOF
       echo ">>> $component - $version - $url"
       # Download parcel manifest
       manifest_url="$(check_for_presigned_url "${url%%/}/manifest.json")"
-      retry_if_needed 5 5 "curl --referer '${BASE_URI%/}/' $curl_basic_auth --silent '$manifest_url' > /tmp/manifest.json"
+      retry_if_needed 5 5 "curl $curl_basic_auth --silent '$manifest_url' > /tmp/manifest.json"
       # Find the parcel name for the specific component and version
       parcel_name=$(jq -r '.parcels[] | select(.parcelName | contains("'"$version"'-el7.parcel")) | select(.components[] | .name == "'"$component"'").parcelName' /tmp/manifest.json)
       # Create the hash file
@@ -277,7 +268,7 @@ EOF
       echo "$hash" > "/opt/cloudera/parcel-repo/${parcel_name}.sha"
       # Download the parcel file - in the background
       parcel_url="$(check_for_presigned_url "${url%%/}/${parcel_name}")"
-      retry_if_needed 5 5 "wget --referer='${BASE_URI%/}/' --continue --progress=dot:giga $wget_basic_auth '${parcel_url}' -O '/opt/cloudera/parcel-repo/${parcel_name}'" &
+      retry_if_needed 5 5 "wget --continue --progress=dot:giga $wget_basic_auth '${parcel_url}' -O '/opt/cloudera/parcel-repo/${parcel_name}'" &
     done
     wait
     # Create the torrent file for the parcel
@@ -311,7 +302,7 @@ EOF
     else
       auth=""
     fi
-    retry_if_needed 5 5 "wget --referer='${BASE_URI%/}/' --progress=dot:giga $wget_basic_auth '${url}' -O '/opt/cloudera/csd/${file_name}'"
+    retry_if_needed 5 5 "wget --progress=dot:giga $wget_basic_auth '${url}' -O '/opt/cloudera/csd/${file_name}'"
     # Patch CDSW CSD so that we can use it on CDP
     if [ "${HAS_CDSW:-1}" == "1" -a "$url" == "$CDSW_CSD_URL" -a "$CM_MAJOR_VERSION" == "7" ]; then
       jar xvf /opt/cloudera/csd/CLOUDERA_DATA_SCIENCE_WORKBENCH-*.jar descriptor/service.sdl
@@ -322,6 +313,9 @@ EOF
   done
 
   chown -R cloudera-scm:cloudera-scm /opt/cloudera
+
+  # Disable EPEL repo to avoid issues during agent deployment
+  sed -i 's/enabled=1/enabled=0/' /etc/yum.repos.d/epel*
 
   echo "-- Finished image preinstall"
 else
@@ -394,19 +388,34 @@ case "${CLOUD_PROVIDER}" in
           sed -i.bak '/server 169.254.169.123/ d' /etc/chrony.conf
           echo "server 169.254.169.123 prefer iburst minpoll 4 maxpoll 4" >> /etc/chrony.conf
           systemctl restart chronyd
+          export PUBLIC_DNS=$(curl http://169.254.169.254/latest/meta-data/public-hostname)
+          export PRIVATE_DNS=$(curl http://169.254.169.254/latest/meta-data/local-hostname)
+          export PRIVATE_IP=$(curl http://169.254.169.254/latest/meta-data/local-ipv4)
           ;;
       azure)
           umount /mnt/resource
           mount /dev/sdb1 /opt
+          export PUBLIC_DNS=$(TBD)
+          export PRIVATE_DNS=$(TBD)
+          export PRIVATE_IP=$(TBD)
           ;;
       gcp)
+          export PRIVATE_DNS=$(curl -H "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/instance/hostname)
+          export PUBLIC_DNS=$PRIVATE_DNS
+          export PRIVATE_IP=$(curl -s -H "Metadata-Flavor: Google" http://169.254.169.254/computeMetadata/v1/instance/network-interfaces/0/ip)
           ;;
       *)
-          echo $"Usage: $0 {aws|azure|gcp} template-file [docker-device]"
-          echo $"example: ./setup.sh azure default_template.json"
-          echo $"example: ./setup.sh aws cluster_template.json /dev/xvdb"
-          exit 1
+          export PRIVATE_DNS=$(hostname -f)
+          export PUBLIC_DNS=$PRIVATE_DNS
+          export PRIVATE_IP=$(hostname -I | awk '{print $1}')
 esac
+
+if [ "$PUBLIC_DNS" == "" ]; then
+  echo "ERROR: Could not retrieve public DNS for this instance. Probably a transient error. Please try again."
+  exit 1
+fi
+export CLUSTER_HOST=$PUBLIC_DNS
+export CDSW_DOMAIN=cdsw.${PUBLIC_IP}.nip.io
 
 echo "-- Set /etc/hosts - Public DNS must come first"
 sed -i.bak '/edge2ai-1.dim.local/ d' /etc/hosts
@@ -538,8 +547,7 @@ systemctl enable postgresql-10
 systemctl start postgresql-10
 
 echo "-- Create DBs required by CM"
-sudo -u postgres psql < ${BASE_DIR}/create_db_pg.sql
-sudo -u postgres psql -A -t -f ${BASE_DIR}/ssb/sql/schema.sql
+sudo -u postgres psql -v the_pwd="${THE_PWD}" < ${BASE_DIR}/create_db_pg.sql
 
 echo "-- Prepare CM database 'scm'"
 if [[ $CM_MAJOR_VERSION != 5 ]]; then
@@ -547,7 +555,7 @@ if [[ $CM_MAJOR_VERSION != 5 ]]; then
 else
   SCM_PREP_DB=/usr/share/cmf/schema/scm_prepare_database.sh
 fi
-$SCM_PREP_DB postgresql scm scm supersecret1
+$SCM_PREP_DB postgresql scm scm "${THE_PWD}"
 
 echo "-- Install additional CSDs"
 for csd in $(find $BASE_DIR/csds -name "*.jar"); do
@@ -599,9 +607,20 @@ add_user bob users
 
 wait_for_cm
 
-echo "-- Generate cluster template"
+echo "Reset CM admin password"
+sudo -u postgres psql -d scm -c "update users set password_hash = '${THE_PWD_HASH}', password_salt = ${THE_PWD_SALT} where user_name = 'admin'"
+
 enable_py3
-python $BASE_DIR/cm_template.py --cdh-major-version $CDH_MAJOR_VERSION $CM_SERVICES > $TEMPLATE_FILE
+if [[ ${HAS_FLINK:-0} == 1 ]]; then
+  echo "-- Install SSB dependencies"
+  mkdir -p /usr/share/python3
+  pip3 install \
+    mysql-connector-python==8.0.23 psycopg2-binary==2.8.5 \
+    -t /usr/share/python3
+fi
+
+echo "-- Generate cluster template"
+python -u $BASE_DIR/cm_template.py --cdh-major-version $CDH_MAJOR_VERSION $CM_SERVICES > $TEMPLATE_FILE
 
 echo "-- Create cluster"
 if [ "$(is_kerberos_enabled)" == "yes" ]; then
@@ -613,7 +632,7 @@ CM_REPO_URL=$(grep baseurl $CM_REPO_FILE | sed 's/.*=//;s/ //g')
 # In case this is a re-run and TLS was already enabled, provide the TLS truststore option
 TRUSTSTORE_OPTION=$([[ $(netstat -anp | grep ':7183 .*LISTEN ' | wc -l) > 0 ]] && echo "--tls-ca-cert /opt/cloudera/security/x509/truststore.pem" || echo "")
 if [ "$(is_tls_enabled)" != "yes" ]; then
-  python $BASE_DIR/create_cluster.py ${CLUSTER_HOST} \
+  python -u $BASE_DIR/create_cluster.py ${CLUSTER_HOST} \
     $TRUSTSTORE_OPTION \
     --setup-cm \
       --key-file $KEY_FILE \
@@ -622,7 +641,7 @@ if [ "$(is_tls_enabled)" != "yes" ]; then
     --create-cluster \
       --template $TEMPLATE_FILE
 else
-  python $BASE_DIR/create_cluster.py ${CLUSTER_HOST} \
+  python -u $BASE_DIR/create_cluster.py ${CLUSTER_HOST} \
     $TRUSTSTORE_OPTION \
     --setup-cm \
       --key-file $KEY_FILE \
@@ -649,16 +668,10 @@ else
   # Wait for CM to be ready
   wait_for_cm
 
-  python $BASE_DIR/create_cluster.py ${CLUSTER_HOST} \
+  python -u $BASE_DIR/create_cluster.py ${CLUSTER_HOST} \
     --create-cluster \
       --template $TEMPLATE_FILE \
       --tls-ca-cert /opt/cloudera/security/x509/truststore.pem
-fi
-
-if [[ ${HAS_FLINK:-0} == 1 ]]; then
-  echo "-- Finish SSB setup"
-  # TODO: This is a workaround. It should be removed once release is finished.
-  bash ${BASE_DIR}/ssb/setup-ssb.sh
 fi
 
 echo "Set shadow permissions - needed by Knox when using PAM authentication"
@@ -666,13 +679,13 @@ chgrp shadow /etc/shadow
 chmod g+r /etc/shadow
 id knox > /dev/null 2>&1 && usermod -G knox,hadoop,shadow knox || echo "User knox does not exist. Skipping usermod"
 if [[ ${HAS_KNOX:-0} == 1 ]]; then
-  curl -k -L -X POST -u admin:admin "http://${CLUSTER_HOST}:7180/api/v19/clusters/OneNodeCluster/services/knox/commands/restart"
+  curl -k -L -X POST -u admin:${THE_PWD} "http://${CLUSTER_HOST}:7180/api/v19/clusters/OneNodeCluster/services/knox/commands/restart"
 fi
 
 echo "-- Ensure Zepellin is on the shadow group for PAM auth to work (service needs restarting)"
 id zeppelin > /dev/null 2>&1 && usermod -G shadow zeppelin || echo "User zeppelin does not exist. Skipping usermod"
 if [[ ${HAS_ZEPPELIN:-0} == 1 ]]; then
-  curl -k -L -X POST -u admin:admin "http://${CLUSTER_HOST}:7180/api/v19/clusters/OneNodeCluster/services/zeppelin/commands/restart"
+  curl -k -L -X POST -u admin:${THE_PWD} "http://${CLUSTER_HOST}:7180/api/v19/clusters/OneNodeCluster/services/zeppelin/commands/restart"
 fi
 
 echo "-- Tighten permissions"
@@ -721,7 +734,7 @@ systemctl start minifi
 
 # TODO: Implement Ranger DB and Setup in template
 # TODO: Fix kafka topic creation once Ranger security is setup
-if [[ ",${CM_SERVICES}," == *",KAFKA,"* ]]; then
+if [[ ${HAS_KAFKA:-0} == 1 ]]; then
   echo "-- Create Kafka topic (iot)"
   auth kafka
   if [[ -f $KAFKA_CLIENT_PROPERTIES ]]; then
@@ -734,104 +747,106 @@ if [[ ",${CM_SERVICES}," == *",KAFKA,"* ]]; then
   else
     KAFKA_PORT="9092"
   fi
-  kafka-topics $CLIENT_CONFIG_OPTION --bootstrap-server ${CLUSTER_HOST}:${KAFKA_PORT} --create --topic iot --partitions 10 --replication-factor 1
-  kafka-topics $CLIENT_CONFIG_OPTION --bootstrap-server ${CLUSTER_HOST}:${KAFKA_PORT} --describe --topic iot
-  kafka-topics $CLIENT_CONFIG_OPTION --bootstrap-server ${CLUSTER_HOST}:${KAFKA_PORT} --create --topic iot_enriched --partitions 10 --replication-factor 1
-  kafka-topics $CLIENT_CONFIG_OPTION --bootstrap-server ${CLUSTER_HOST}:${KAFKA_PORT} --describe --topic iot_enriched
+  for topic in iot iot_enriched iot_enriched_avro; do
+    kafka-topics $CLIENT_CONFIG_OPTION --bootstrap-server ${CLUSTER_HOST}:${KAFKA_PORT} --create --topic $topic --partitions 10 --replication-factor 1
+    kafka-topics $CLIENT_CONFIG_OPTION --bootstrap-server ${CLUSTER_HOST}:${KAFKA_PORT} --describe --topic $topic
+  done
   unauth
 fi
 
-RETRIES=30
-ATLAS_OK=0
-while [[ $RETRIES -gt 0 ]]; do
-  echo "-- Wait for Atlas to be ready ($RETRIES retries left)"
-  set +e
-  ret_code=$(curl -w '%{http_code}' -s -o /dev/null -k --location -u admin:supersecret1 "http://${CLUSTER_HOST}:31000/api/atlas/v2/types/typedefs")
-  set -e
-  if [[ $ret_code == "200" ]]; then
-    ATLAS_OK=1
-    break
-  fi
-  RETRIES=$((RETRIES - 1))
-  sleep 10
-done
+if [[ ${HAS_ATLAS:-0} == 1 ]]; then
+  RETRIES=30
+  ATLAS_OK=0
+  while [[ $RETRIES -gt 0 ]]; do
+    echo "-- Wait for Atlas to be ready ($RETRIES retries left)"
+    set +e
+    ret_code=$(curl -w '%{http_code}' -s -o /dev/null -k --location -u admin:${THE_PWD} "http://${CLUSTER_HOST}:31000/api/atlas/v2/types/typedefs")
+    set -e
+    if [[ $ret_code == "200" ]]; then
+      ATLAS_OK=1
+      break
+    fi
+    RETRIES=$((RETRIES - 1))
+    sleep 10
+  done
 
-if [[ $ATLAS_OK -eq 1 ]]; then
-  echo "-- Load Flink entities in Atlas"
-  curl \
-    -k --location \
-    -u admin:supersecret1 \
-    --request POST "http://${CLUSTER_HOST}:31000/api/atlas/v2/types/typedefs" \
-    --header 'Content-Type: application/json' \
-    --data '{
-    "enumDefs": [],
-    "structDefs": [],
-    "classificationDefs": [],
-    "entityDefs": [
-        {
-            "name": "flink_application",
-            "superTypes": [
-                "Process"
-            ],
-            "serviceType": "flink",
-            "typeVersion": "1.0",
-            "attributeDefs": [
-                {
-                    "name": "id",
-                    "typeName": "string",
-                    "cardinality": "SINGLE",
-                    "isIndexable": true,
-                    "isOptional": false,
-                    "isUnique": true
-                },
-                {
-                    "name": "startTime",
-                    "typeName": "date",
-                    "cardinality": "SINGLE",
-                    "isIndexable": false,
-                    "isOptional": true,
-                    "isUnique": false
-                },
-                {
-                    "name": "endTime",
-                    "typeName": "date",
-                    "cardinality": "SINGLE",
-                    "isIndexable": false,
-                    "isOptional": true,
-                    "isUnique": false
-                },
-                {
-                    "name": "conf",
-                    "typeName": "map<string,string>",
-                    "cardinality": "SINGLE",
-                    "isIndexable": false,
-                    "isOptional": true,
-                    "isUnique": false
-                },
-                {
-                    "name": "inputs",
-                    "typeName": "array<string>",
-                    "cardinality": "LIST",
-                    "isIndexable": false,
-                    "isOptional": false,
-                    "isUnique": false
-                },
-                {
-                    "name": "outputs",
-                    "typeName": "array<string>",
-                    "cardinality": "LIST",
-                    "isIndexable": false,
-                    "isOptional": false,
-                    "isUnique": false
-                }
-            ]
-        }
-    ],
-    "relationshipDefs": []
-}'
+  if [[ $ATLAS_OK -eq 1 ]]; then
+    echo "-- Load Flink entities in Atlas"
+    curl \
+      -k --location \
+      -u admin:${THE_PWD} \
+      --request POST "http://${CLUSTER_HOST}:31000/api/atlas/v2/types/typedefs" \
+      --header 'Content-Type: application/json' \
+      --data '{
+      "enumDefs": [],
+      "structDefs": [],
+      "classificationDefs": [],
+      "entityDefs": [
+          {
+              "name": "flink_application",
+              "superTypes": [
+                  "Process"
+              ],
+              "serviceType": "flink",
+              "typeVersion": "1.0",
+              "attributeDefs": [
+                  {
+                      "name": "id",
+                      "typeName": "string",
+                      "cardinality": "SINGLE",
+                      "isIndexable": true,
+                      "isOptional": false,
+                      "isUnique": true
+                  },
+                  {
+                      "name": "startTime",
+                      "typeName": "date",
+                      "cardinality": "SINGLE",
+                      "isIndexable": false,
+                      "isOptional": true,
+                      "isUnique": false
+                  },
+                  {
+                      "name": "endTime",
+                      "typeName": "date",
+                      "cardinality": "SINGLE",
+                      "isIndexable": false,
+                      "isOptional": true,
+                      "isUnique": false
+                  },
+                  {
+                      "name": "conf",
+                      "typeName": "map<string,string>",
+                      "cardinality": "SINGLE",
+                      "isIndexable": false,
+                      "isOptional": true,
+                      "isUnique": false
+                  },
+                  {
+                      "name": "inputs",
+                      "typeName": "array<string>",
+                      "cardinality": "LIST",
+                      "isIndexable": false,
+                      "isOptional": false,
+                      "isUnique": false
+                  },
+                  {
+                      "name": "outputs",
+                      "typeName": "array<string>",
+                      "cardinality": "LIST",
+                      "isIndexable": false,
+                      "isOptional": false,
+                      "isUnique": false
+                  }
+              ]
+          }
+      ],
+      "relationshipDefs": []
+  }'
+  fi
 fi
 
-if [[ ",${CM_SERVICES}," == *",FLINK,"* ]]; then
+if [[ ${HAS_FLINK:-0} == 1 ]]; then
   echo "-- Flink: extra workaround due to CSA-116"
   auth hdfs
   hdfs dfs -chown flink:flink /user/flink
@@ -856,7 +871,10 @@ fi
 echo "-- Cleaning up"
 rm -f $BASE_DIR/stack.*.sh* $BASE_DIR/stack.sh*
 
-source /etc/workshop.conf
-echo "-- At this point you can login into Cloudera Manager host on port 7180 and follow the deployment of the cluster"
-figlet -f small -w 300  "Cluster  ${CLUSTER_ID:-???}  deployed successfully"'!' | cowsay -n -f "$(ls -1 /usr/share/cowsay | grep "\.cow" | sed 's/\.cow//' | egrep -v "bong|head-in|sodomized|telebears" | shuf -n 1)"
-echo "Completed successfully: CLUSTER ${CLUSTER_ID:-???}"
+if [[ -f /etc/workshop.conf ]]; then
+  source /etc/workshop.conf
+  echo "-- At this point you can login into Cloudera Manager host on port 7180 and follow the deployment of the cluster"
+  figlet -f small -w 300  "Cluster  ${CLUSTER_ID:-???}  deployed successfully"'!' | cowsay -n -f "$(ls -1 /usr/share/cowsay | grep "\.cow" | sed 's/\.cow//' | egrep -v "bong|head-in|sodomized|telebears" | shuf -n 1)"
+  echo "Completed successfully: CLUSTER ${CLUSTER_ID:-???}"
+fi
+
