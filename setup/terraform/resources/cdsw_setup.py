@@ -205,7 +205,6 @@ project_engine_image_id = r.json()['id']
 print('Project image default engine Image ID set to: %s'% (project_engine_image_id))  
   
 print('# Create application with Data Visualization server')
-# https://github.infra.cloudera.com/Sense/cloudera-sense/blob/master/services/web/server/api/v1/controllers/applications/partial.swagger.yaml
 application_name = 'viz'
 
 params = { 
