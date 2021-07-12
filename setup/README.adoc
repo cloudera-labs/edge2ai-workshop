@@ -180,7 +180,7 @@ docker pull asdaraujo/edge2ai-workshop:latest
 +
 [source,shell]
 ----
-# Install git, skip if you already have it
+# Install Git, skip if you already have it
 sudo yum install -y git
 
 # Clone the repo
