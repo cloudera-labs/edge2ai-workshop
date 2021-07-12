@@ -187,7 +187,6 @@ if not viz_project_id:
 print('Viz project ID: %s'% (viz_project_id,))
 
 print('# Add custom engine for Data Visualization server')
-#docker.repository.cloudera.com/cloudera/cdv/cdswdataviz:6.2.3-b18
 params = { 
   "engineImage": {
     "description": "dataviz-623",
@@ -199,7 +198,6 @@ engine_image_id = r.json()['id']
 print('Engine Image ID: %s'% (engine_image_id,))
 
 print('# Set new engine image as default for the viz project')
-#docker.repository.cloudera.com/cloudera/cdv/cdswdataviz:6.2.3-b18
 r = s.patch(CDSW_API + '/projects/admin/viz/engine-images',
             json={'engineImageId': engine_image_id})
 r = s.get(CDSW_API + '/projects/admin/viz/engine-images')
