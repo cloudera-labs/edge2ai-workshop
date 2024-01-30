@@ -29,7 +29,7 @@ function list_instances() {
   printf "%-12s %-15s %-8s %-40s %s\n" $(echo "State Owner EndDate Name Id"; list_cloud_instances "$instance_ids")
 }
 
-INSTANCE_IDS="$(cluster_instances | cluster_attr id) $(web_instance | web_attr id) $(ipa_instance | ipa_attr id)"
+INSTANCE_IDS="$(cluster_instances | cluster_attr id) $(web_instance | web_attr id) $(ipa_instance | ipa_attr id) $(ecs_instances | ecs_attr id)"
 
 if [[ $ACTION == "list" ]]; then
   list_instances "$INSTANCE_IDS"
