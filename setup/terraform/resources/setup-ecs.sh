@@ -35,6 +35,17 @@ if [[ $ACTION == "install-prereqs" ]]; then
   fi
 
   deploy_os_prereqs
+  # Install dependencies on python38 for ECS 1.5.2
+  yum_install centos-release-scl
+  yum_install rh-python38 rh-python38-python-devel
+  # Enable python38 and add yaml
+  enable_py3
+  pip install --quiet --upgrade pip pyyaml
+  rm -f /usr/bin/python3 /usr/bin/pip3 /usr/local/bin/python3.8
+  ln -s /opt/rh/rh-python38/root/bin/python3 /usr/bin/python3
+  ln -s /opt/rh/rh-python38/root/bin/pip3 /usr/bin/pip3
+  ln -s /opt/rh/rh-python38/root/usr/bin/python3.8 /usr/local/bin/python3.8
+  
   complete_host_initialization "ecs"
 
   log_status "Ensure domain search list only contains ec2.internal, and not nip.io"
