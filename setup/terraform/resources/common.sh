@@ -1329,6 +1329,8 @@ function deploy_cluster_prereqs() {
   yum_install nodejs gcc-c++ make shellinabox mosquitto transmission-cli rh-python38 rh-python38-python-devel httpd
   # Below is needed for secure clusters (required by Impyla)
   yum_install cyrus-sasl-md5 cyrus-sasl-plain cyrus-sasl-gssapi cyrus-sasl-devel
+  # SSB-LB-UI needs libssl.so.1.1
+  yum_install --enablerepo=epel openssl11
 }
 
 function resolve_host_addresses() {
