@@ -67,8 +67,11 @@ EOF
   create_certs "$IPA_HOST"
 
   log_status "ECS: Installing k9s"
-  yum_install golang
+  # install golang from tar
   cd /tmp
+  wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
+  rm -rf /usr/local/go && tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
+  export PATH=$PATH:/usr/local/go/bin
   git clone https://github.com/derailed/k9s
   cd k9s/
   make build
