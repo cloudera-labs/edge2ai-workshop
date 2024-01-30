@@ -222,6 +222,13 @@ EOF
       chkconfig --add efm
       chown -R root:root /opt/cloudera/cem/${EFM_BASE_NAME}
       sed -i.bak 's#APP_EXT_LIB_DIR=.*#APP_EXT_LIB_DIR=/usr/share/java#' /opt/cloudera/cem/efm/conf/efm.conf
+      if [[ $CEM_MAJOR_VERSION == 2 ]]; then
+        # Install JDK17
+        mkdir -p /opt/jdk17
+        retry_if_needed 5 5 "wget --progress=dot:giga https://download.java.net/java/GA/jdk17.0.2/dfd4a8d0985749f896bed50d7138ee7f/8/GPL/openjdk-17.0.2_linux-x64_bin.tar.gz -O /tmp/jdk17.tar.gz"
+        tar -zxf /tmp/jdk17.tar.gz -C /opt/jdk17
+        echo "JAVA_HOME=/opt/jdk17/jdk-17.0.2" >> /opt/cloudera/cem/efm/conf/efm.conf
+      fi
     fi
 
     MINIFI_TARBALL=$(find /opt/cloudera/cem/ -name "minifi-[0-9]*-bin.tar.gz" | sort | tail -1)
