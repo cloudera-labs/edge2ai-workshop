@@ -45,7 +45,7 @@ TEMPLATE_FILE=$BASE_DIR/cluster_template.${NAMESPACE}.json
 CM_REPO_FILE=/etc/yum.repos.d/cloudera-manager.repo
 PREINSTALL_COMPLETED_FLAG=${BASE_DIR}/.preinstall.completed
 
-get_public_ip
+export PUBLIC_IP=$(get_public_ip)
 resolve_host_addresses
 load_stack $NAMESPACE
 
@@ -132,11 +132,8 @@ EOF
   fi
 
   # Install Java after seting CM repo, in case we're sourcing Java from there
-  log_status "Installing JDK package ${JAVA_PACKAGE_NAME}"
-  yum_install ${JAVA_PACKAGE_NAME}
-  if ! javac; then
-    set_java_alternatives
-  fi
+  log_status "Installing JDK packages"
+  install_java
 
   log_status "Installing Postgresql repo"
   if [[ $(rpm -qa | grep pgdg-redhat-repo- | wc -l) -eq 0 ]]; then
@@ -151,12 +148,13 @@ EOF
   systemctl disable cloudera-scm-server
 
   log_status "Installing PostgreSQL"
+  # PostgreSQL has a dependency on Java 8, so the install below will install the OpenJDK 8 package
+  # We set the java alternatives manually here so that Java 8 doesn't take priority after the install
+  CURRENT_JAVA=$(update-alternatives --display java | grep "link currently points to" | awk '{print $NF}')
+  update-alternatives --set java "$CURRENT_JAVA"
   yum_install postgresql${PG_VERSION}-server postgresql${PG_VERSION} postgresql${PG_VERSION}-contrib postgresql-jdbc
   systemctl disable postgresql-${PG_VERSION}
 
-  log_status "Handling additional installs"
-  # NPM install is flaky and fails intermittently so we will retry if needed
-  retry_if_needed 5 5 "npm install --quiet forever -g"
   enable_py3
   pip install --quiet --upgrade pip
   # re-source after pip upgrade due to change in path of the pip executable
@@ -176,7 +174,7 @@ EOF
     requests-kerberos==0.14.0 \
     thrift-sasl==0.4.3
 
-  rm -f /usr/bin/python3 /usr/bin/pip3
+  rm -f /usr/bin/python3 /usr/bin/pip3 /usr/local/bin/python3.8
   ln -s /opt/rh/rh-python38/root/bin/python3 /usr/bin/python3
   ln -s /opt/rh/rh-python38/root/bin/pip3 /usr/bin/pip3
   ln -s /opt/rh/rh-python38/root/usr/bin/python3.8 /usr/local/bin/python3.8
@@ -222,6 +220,10 @@ EOF
       chkconfig --add efm
       chown -R root:root /opt/cloudera/cem/${EFM_BASE_NAME}
       sed -i.bak 's#APP_EXT_LIB_DIR=.*#APP_EXT_LIB_DIR=/usr/share/java#' /opt/cloudera/cem/efm/conf/efm.conf
+      # If Java is not 1.8, remove deprecated JVM option
+      if [[ $(java -version 2>&1 | grep -c "\<1\.[786]") -eq 0 ]]; then
+        sed -i.bak2 's/-XX:+UseParNewGC *//;s/UseConcMarkSweepGC/UseG1GC/' /opt/cloudera/cem/efm/conf/efm.conf
+      fi
     fi
 
     MINIFI_TARBALL=$(find /opt/cloudera/cem/ -name "minifi-[0-9]*-bin.tar.gz" | sort | tail -1)
@@ -272,9 +274,16 @@ EOF
         rm -rf $TMP_LIB_DIR
 
         # Ensure MiNiFi uses Python 3.8 instead of the default system version (3.6)
-        sed -i 's#export MINIFI_HOME#source /opt/rh/rh-python38/enable\nexport MINIFI_HOME#' /etc/rc.d/init.d/minifi
+        if [[ -f /etc/rc.d/init.d/minifi ]]; then
+          sed -i 's#export MINIFI_HOME#source /opt/rh/rh-python38/enable\nexport MINIFI_HOME#' /etc/rc.d/init.d/minifi
+        else
+          # TODO: In recent MiNiFi versions the minifi.sh install script no longer creates /etc/rc.d/init.d/minifi
+          # TODO: Instead, it creates /usr/local/lib/systemd/system/minifi.service. We need another way to inject
+          # TODO: Python 3.9 to the MiNiFi path.
+          true
+        fi
         systemctl daemon-reload
-        yum -y install --enablerepo=epel patchelf
+        yum_install --enablerepo=epel patchelf
         patchelf /opt/cloudera/cem/minifi/extensions/libminifi-python-script-extension.so --replace-needed libpython3.so libpython3.8.so
 
         # Install needed modules
@@ -692,6 +701,8 @@ fi
 log_status "Creating cluster"
 python -u $BASE_DIR/create_cluster.py ${CLUSTER_HOST} \
   --create-cluster \
+    --remote-repo-usr "$(get_remote_repo_username)" \
+    --remote-repo-pwd "$(get_remote_repo_password)" \
     --template $TEMPLATE_FILE \
     $(get_create_cluster_tls_option)
 
@@ -1000,7 +1011,7 @@ fi
 
 if [ "${HAS_CDSW:-}" == "1" ]; then
   log_status "Initiating CDSW setup in the background",
-  nohup python -u /tmp/resources/cdsw_setup.py $(echo "$PUBLIC_DNS" | sed -E 's/cdp.(.*).nip.io/\1/') /tmp/resources/iot_model.pkl /tmp/resources/the_pwd.txt > /tmp/resources/cdsw_setup.log 2>&1 &
+  nohup python -u /tmp/resources/cdsw_setup.py --public-ip "$(echo "$PUBLIC_DNS" | sed -E 's/cdp.(.*).nip.io/\1/')" --model-pkl-file /tmp/resources/iot_model.pkl --password-file /tmp/resources/the_pwd.txt > /tmp/resources/cdsw_setup.log 2>&1 &
 fi
 
 if [[ ! -z ${ECS_PUBLIC_DNS:-} ]]; then

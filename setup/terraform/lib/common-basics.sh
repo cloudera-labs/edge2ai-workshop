@@ -1,6 +1,6 @@
 #!/bin/bash
 
-export PS4='+ [${BASH_SOURCE#'"$BASE_DIR"/'}:${LINENO}]: ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
+export PS4='+ \D{%Y-%m-%d %H:%M:%S} [${BASH_SOURCE#'"$BASE_DIR"/'}:${LINENO}]: ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'
 
 if [[ ${DEBUG:-} != "" ]]; then
   set -x
@@ -29,6 +29,10 @@ C_BG_MAGENTA="$(echo -e "\033[105m")"
 
 function log() {
   echo "[$(date)] [$(basename $0): $BASH_LINENO] : $*"
+}
+
+function error() {
+  echo "${C_RED}ERROR: $*${C_NORMAL}" >&2
 }
 
 function abort() {

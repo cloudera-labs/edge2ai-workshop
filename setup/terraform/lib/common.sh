@@ -205,6 +205,7 @@ function maybe_launch_docker() {
         -v $BASE_DIR/../..:/edge2ai-workshop
         -v $HOME/.aws:/root/.aws
         -v $HOME/.azure:/root/.azure
+        -e TF_LOG=${TF_LOG:-}
         -e DEBUG=${DEBUG:-}
         -e NO_PROMPT=${NO_PROMPT:-}
         -e NO_LOG_FETCH=${NO_LOG_FETCH:-}
@@ -261,6 +262,7 @@ function try_in_docker() {
         -v $BASE_DIR/../..:/edge2ai-workshop
         -v $HOME/.aws:/root/.aws
         -v $HOME/.azure:/root/.azure
+        -e TF_LOG=${TF_LOG:-}
         -e DEBUG=${DEBUG:-}
         -e NO_PROMPT=${NO_PROMPT:-}
         -e NO_LOG_FETCH=${NO_LOG_FETCH:-}
@@ -378,7 +380,8 @@ function load_env() {
   source $env_file
   export NAMESPACE=$namespace
 
-  export TF_VAR_cloud_provider=${TF_VAR_cloud_provider:-aws}
+  TF_VAR_cloud_provider=${TF_VAR_cloud_provider:-aws}
+  export TF_VAR_cloud_provider
   local provider_common=$BASE_DIR/lib/common-${TF_VAR_cloud_provider}.sh
   if [[ -f $provider_common ]]; then
     source $provider_common
@@ -395,35 +398,57 @@ function load_env() {
   REGISTRATION_CODE_FILE=$NAMESPACE_DIR/registration.code
   TF_STATE=$NAMESPACE_DIR/terraform.state
 
-  export TF_VAR_namespace=$NAMESPACE
-  export TF_VAR_name_prefix=$(echo "$namespace" | tr "A-Z" "a-z")
-  export TF_VAR_key_name="${TF_VAR_name_prefix}-$(echo -n "$TF_VAR_owner" | base64)"
-  export TF_VAR_web_key_name="${TF_VAR_name_prefix}-$(echo -n "$TF_VAR_owner" | base64)-web"
+  TF_VAR_namespace=$NAMESPACE
+  TF_VAR_name_prefix=$(echo "$namespace" | tr "A-Z" "a-z")
+  TF_VAR_key_name="${TF_VAR_name_prefix}-$(echo -n "$TF_VAR_owner" | base64)"
+  TF_VAR_web_key_name="${TF_VAR_name_prefix}-$(echo -n "$TF_VAR_owner" | base64)-web"
 
-  export TF_VAR_ssh_private_key=$NAMESPACE_DIR/${TF_VAR_key_name}.pem
-  export TF_VAR_ssh_public_key=$NAMESPACE_DIR/${TF_VAR_key_name}.pem.pub
-  export TF_VAR_web_ssh_private_key=$NAMESPACE_DIR/${TF_VAR_web_key_name}.pem
-  export TF_VAR_web_ssh_public_key=$NAMESPACE_DIR/${TF_VAR_web_key_name}.pem.pub
-  export TF_VAR_my_public_ip=$(curl -sL http://ifconfig.me || curl -sL http://api.ipify.org/ || curl -sL https://ipinfo.io/ip)
+  TF_VAR_ssh_private_key=$NAMESPACE_DIR/${TF_VAR_key_name}.pem
+  TF_VAR_ssh_public_key=$NAMESPACE_DIR/${TF_VAR_key_name}.pem.pub
+  TF_VAR_web_ssh_private_key=$NAMESPACE_DIR/${TF_VAR_web_key_name}.pem
+  TF_VAR_web_ssh_public_key=$NAMESPACE_DIR/${TF_VAR_web_key_name}.pem.pub
+  TF_VAR_my_public_ip=$(get_public_ip)
 
   normalize_boolean TF_VAR_use_elastic_ip false
   normalize_boolean TF_VAR_pvc_data_services false
   normalize_boolean TF_VAR_deploy_cdsw_model true
 
-  export TF_VAR_cdp_license_file_original=${TF_VAR_cdp_license_file:-}
-  export TF_VAR_cdp_license_file=$(get_license_file_path)
+  TF_VAR_cdp_license_file_original=${TF_VAR_cdp_license_file:-}
+  TF_VAR_cdp_license_file=$(get_license_file_path)
+
+  export TF_VAR_namespace TF_VAR_name_prefix TF_VAR_key_name TF_VAR_web_key_name TF_VAR_ssh_private_key TF_VAR_ssh_public_key TF_VAR_web_ssh_private_key TF_VAR_web_ssh_public_key TF_VAR_my_public_ip TF_VAR_cdp_license_file_original TF_VAR_cdp_license_file
+}
+
+function get_public_ip() {
+  local retries=5
+  while [[ $retries -gt 0 ]]; do
+    local public_ip=$(curl -sL http://ifconfig.me || curl -sL http://api.ipify.org/ || curl -sL https://ipinfo.io/ip)
+    if [[ $public_ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+      echo $public_ip
+      return
+    fi
+    sleep 5
+    retries=$((retries - 1))
+  done
+  echo "ERROR: Could not retrieve public IP for this instance. Probably a transient error. Please try again." >&2
+  exit 1
 }
 
 function get_license_file_path() {
   if [[ -z ${TF_VAR_cdp_license_file:-} ]]; then
     echo ""
+  elif [[ $TF_VAR_cdp_license_file != "/"* ]]; then
+    error "The path to the license file specified in TF_VAR_cdp_license_file must be absolute."
+    error "It currently specifies a relative path: $TF_VAR_cdp_license_file"
+    abort
   elif [[ -s $TF_VAR_cdp_license_file ]]; then
     echo "$TF_VAR_cdp_license_file"
   elif [[ $(df | grep "$LICENSE_FILE_MOUNTPOINT" | wc -l) -eq 1 ]]; then
     # we are running inside docker
     echo "$LICENSE_FILE_MOUNTPOINT"
   else
-    echo "/file/not/found"
+    error "The license file specified in TF_VAR_cdp_license_file ($TF_VAR_cdp_license_file) could not be found."
+    abort
   fi
 }
 
@@ -497,21 +522,34 @@ function run_terraform() {
   fi
   check_terraform_version
   pushd $provider_dir > /dev/null
-  export TF_VAR_base_dir=$BASE_DIR
-  date >> $NAMESPACE_DIR/terraform.log
-  echo "Command: validate" >> $NAMESPACE_DIR/terraform.log
-  set +e
-  $TERRAFORM validate >> $NAMESPACE_DIR/terraform.log 2>&1
-  local ret=$?
-  set -e
-  if [[ $ret -ne 0 ]]; then
-    echo "Command: init -upgrade" >> $NAMESPACE_DIR/terraform.log
-    # Sometimes there are issues downloading plugins. So it retries when needed...
-    retry_if_needed 10 1 "$TERRAFORM init -upgrade" >> $NAMESPACE_DIR/terraform.log 2>&1
-  fi
-  echo "Command: ${args[@]}" >> $NAMESPACE_DIR/terraform.log
-  $TERRAFORM "${args[@]}"
+  TF_VAR_base_dir=$BASE_DIR
+  export TF_VAR_base_dir
+  # Sometimes there are issues downloading plugins. So it retries when needed...
+  local retries=10
+  local ret=0
+  local run_log=/tmp/run.log.$$
+  while [[ $retries -gt 0 ]]; do
+    retry_if_needed 10 30 'terraform_cmd init -upgrade' >> $NAMESPACE_DIR/terraform.log 2>&1
+    set +e
+    terraform_cmd "${args[@]}" 2> >(tee $run_log >&2)
+    ret=$?
+    set -e
+    local timeouts=$(grep -c "timeout while waiting for plugin to start" $run_log)
+    rm -f $run_log
+    # If run timed out because of plugin, keep trying. If the failure had another cause, abort.
+    if [[ $ret == 0 || $timeouts -eq 0 ]]; then
+      break
+    fi
+    retries=$((retries - 1))
+  done
   popd > /dev/null
+  return $ret
+}
+
+function terraform_cmd() {
+  local args=("$@")
+  echo "Command: ${args[@]}" >> $NAMESPACE_DIR/terraform.log
+  $TERRAFORM "${args[@]}" > >(tee -a $NAMESPACE_DIR/terraform.log) 2> >(tee -a $NAMESPACE_DIR/terraform.log >&2)
 }
 
 function check_terraform_version() {
@@ -617,7 +655,10 @@ function check_for_orphaned_keys() {
       echo "         you will lose access to it."
       echo ""
       echo -n "Do you want to overwrite these key pairs? (y/N) "
-      read CONFIRM
+      local CONFIRM=Y
+      if [[ ${NO_PROMPT:-} == "" ]]; then
+        read CONFIRM
+      fi
       if [[ $(echo "$CONFIRM" | tr "a-z" "A-Z") != "Y" ]]; then
         echo "Ensure the keys listed above don't exist before trying this command again."
         echo "Alternatively, launch the environment using a different namespace."
@@ -722,7 +763,8 @@ function check_file_staleness() {
 
 function presign_urls() {
   local stack_file=$1
-  python $BASE_DIR/presign_urls.py "$stack_file"
+  local output_dir=$2
+  python $BASE_DIR/presign_urls.py "$stack_file" "$output_dir"
 }
 
 function validate_env() {
@@ -802,9 +844,14 @@ function remaining_days() {
   local enddate=$1
   python -c "
 from datetime import datetime, timedelta
-dt = datetime.now()
-dt = dt.replace(hour=0, minute=0, second=0, microsecond=0)
-print((datetime.strptime('$enddate', '%m%d%Y') - dt).days)
+now = datetime.now()
+now = now.replace(hour=0, minute=0, second=0, microsecond=0)
+try:
+  dt = datetime.strptime('$enddate', '%m%d%Y')
+  days = (datetime.strptime('$enddate', '%m%d%Y') - now).days
+except ValueError:
+  days = 'INVALID_DATE'
+print(days)
 "
 }
 
@@ -839,10 +886,14 @@ function retry_if_needed() {
   local cmd=$3
   local ret=0
   while [[ $retries -ge 0 ]]; do
-    set +e
+    reset_errexit=false
+    if [[ -o errexit ]]; then
+      set +e
+      reset_errexit=true
+    fi
     eval "$cmd"
     ret=$?
-    set -e
+    "$reset_errexit" && set -e
     if [[ $ret -eq 0 ]]; then
       return 0
     else
@@ -916,6 +967,15 @@ function refresh_tf_json() {
 function ensure_tf_json_file() {
   if [[ -s $TF_STATE && ( ! -s $TF_JSON_FILE || $TF_STATE -nt $TF_JSON_FILE ) ]]; then
     refresh_tf_json
+  fi
+}
+
+function is_deployment_valid() {
+  ensure_tf_json_file
+  if [[ -f $TF_JSON_FILE ]]; then
+    echo yes
+  else
+    echo no
   fi
 }
 
@@ -1127,7 +1187,8 @@ function security_groups() {
 function ensure_registration_code() {
   local code="${1:-}"
   if [[ $code != "" ]]; then
-    export TF_VAR_registration_code="$code"
+    TF_VAR_registration_code="$code"
+    export TF_VAR_registration_code
   elif [[ ${TF_VAR_registration_code:-} == "" ]]; then
     result=$(curl -w "%{http_code}" --connect-timeout 5 "https://frightanic.com/goodies_content/docker-names.php" 2>/dev/null)
     status_code=$(echo "$result" | tail -1)

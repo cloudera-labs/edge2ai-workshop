@@ -3,6 +3,8 @@
 KEYTABS_DIR=/keytabs
 KAFKA_CLIENT_PROPERTIES=${KEYTABS_DIR}/kafka-client.properties
 KRB_REALM=WORKSHOP.COM
+OPENJDK_ARCHIVE=https://jdk.java.net/archive/
+JDK_BASE=/usr/lib/jvm
 
 export THE_PWD=Supersecret1
 export THE_PWD_HASH=8ef2932408095916dc440fbbb18e60f2f5ef42ada16527b917c3d830475de7bb
@@ -214,6 +216,7 @@ security.protocol=SASL_SSL
 sasl.mechanism=GSSAPI
 sasl.kerberos.service.name=kafka
 ssl.truststore.location=$TRUSTSTORE_JKS
+ssl.truststore.password=$THE_PWD
 sasl.jaas.config=com.sun.security.auth.module.Krb5LoginModule required useTicketCache=true;
 EOF
     elif [[ $(is_kerberos_enabled) == yes ]]; then
@@ -227,6 +230,7 @@ EOF
       cat > ${KAFKA_CLIENT_PROPERTIES} <<EOF
 security.protocol=SSL
 ssl.truststore.location=$TRUSTSTORE_JKS
+ssl.truststore.password=$THE_PWD
 EOF
     fi
 
@@ -289,7 +293,15 @@ function validate_stack() {
   # validate required variables
   if [ "$(check_vars "$stack_file" \
             CDH_MAJOR_VERSION CM_MAJOR_VERSION CM_SERVICES \
-            ENABLE_KERBEROS JAVA_PACKAGE_NAME MAVEN_BINARY_URL)" != "0" ]; then
+            ENABLE_KERBEROS MAVEN_BINARY_URL)" != "0" ]; then
+    errors=1
+  fi
+
+  if [[ -z ${JAVA_PACKAGE_NAME:-} && -z ${OPENJDK_VERSION:-} ]]; then
+    echo "${C_RED}ERROR: One of the following properties must be specified in the stack:" > /dev/stderr
+    echo "         - JAVA_PACKAGE_NAME" > /dev/stderr
+    echo "           OR" > /dev/stderr
+    echo "         - OPENJDK_VERSION${C_NORMAL}" > /dev/stderr
     errors=1
   fi
 
@@ -459,9 +471,13 @@ function install_ipa_client() {
   fi
 
   # Install IPA client package
+  log_status "Installing IPA client packages"
   yum_install ipa-client openldap-clients krb5-workstation krb5-libs
 
+  wait_for_ipa "$ipa_host"
+
   # Install IPA client
+  log_status "Installing IPA client"
   ipa-client-install \
     --principal=admin \
     --password="$THE_PWD" \
@@ -501,6 +517,11 @@ enum_cache_timeout = 45/' /etc/sssd/sssd.conf
   chmod 755 ${KEYTABS_DIR}
   chmod -R 444 ${KEYTABS_DIR}/*
 
+  # Add IPA cert to Java's default truststore
+  local java_home cacerts
+  java_home=$(readlink -f "$(dirname "$(readlink -f "$(which java)")")/..")
+  cacerts=$(readlink -f "$(find "$java_home" -name cacerts)")
+  keytool -importcert -keystore "$cacerts" -storepass changeit -alias ipa-ca-cert -file /etc/ipa/ca.crt -noprompt
 }
 
 function install_kerberos() {
@@ -709,7 +730,7 @@ function wait_for_ipa() {
     fi
     retries=$((retries - 1))
     sleep 5
-    echo "Waiting for IPA to be ready (retries left: $retries)"
+    log_status "Waiting for IPA to be ready (retries left: $retries)"
   done
 }
 
@@ -722,7 +743,7 @@ function create_certs() {
   openssl genrsa -des3 -out ${KEY_PEM} -passout pass:${KEY_PWD} 2048
 
   # Create CSR
-  local public_ip=$(curl -sL http://ifconfig.me || curl -sL http://api.ipify.org/ || curl -sL https://ipinfo.io/ip)
+  local public_ip=$(get_public_ip)
   ALT_NAMES=""
   if [[ ! -z ${LOCAL_HOSTNAME:-} ]]; then
     ALT_NAMES="DNS:${LOCAL_HOSTNAME},"
@@ -777,6 +798,7 @@ EOF
     # Wait for IPA to be ready and download IPA cert
     mkdir -p $(dirname $ROOT_PEM)
     wait_for_ipa "$ipa_host"
+    log_status "Downloading IPA CA certificate"
     curl -s -o $ROOT_PEM -w "%{http_code}" "http://${ipa_host}/ca.crt"
     if [[ ! -s $ROOT_PEM ]]; then
       echo "ERROR: Cannot download the IPA CA certificate"
@@ -971,10 +993,14 @@ function retry_if_needed() {
   local cmd=$3
   local ret=0
   while [[ $retries -ge 0 ]]; do
-    set +e
+    reset_errexit=false
+    if [[ -o errexit ]]; then
+      set +e
+      reset_errexit=true
+    fi
     eval "$cmd"
     ret=$?
-    set -e
+    "$reset_errexit" && set -e
     if [[ $ret -eq 0 ]]; then
       return 0
     else
@@ -1083,8 +1109,8 @@ function get_service_urls() {
 
 function clean_all() {
   systemctl stop cloudera-scm-server cloudera-scm-agent cloudera-scm-supervisord kadmin krb5kdc chronyd mosquitto postgresql-${PG_VERSION} httpd shellinaboxd
-  service minifi stop
-  service efm stop
+  service minifi stop; systemctl stop minifi;
+  service efm stop; systemctl stop efm;
   pids=$(ps -ef | grep cloudera | grep -v grep | awk '{print $2}')
   if [[ $pids != "" ]]; then
     kill -9 $pids
@@ -1126,7 +1152,18 @@ function clean_all() {
 
   cp -f /etc/cloudera-scm-agent/config.ini.original /etc/cloudera-scm-agent/config.ini
 
-  rm -rf /var/lib/pgsql/${PG_VERSION}/data/* /var/lib/pgsql/${PG_VERSION}/initdb.log /var/kerberos/krb5kdc/* /var/lib/{accumulo,cdsw,cloudera-host-monitor,cloudera-scm-agent,cloudera-scm-eventserver,cloudera-scm-server,cloudera-service-monitor,cruise_control,druid,flink,hadoop-hdfs,hadoop-httpfs,hadoop-kms,hadoop-mapreduce,hadoop-yarn,hbase,hive,impala,kafka,knox,kudu,livy,nifi,nifiregistry,nifitoolkit,oozie,phoenix,ranger,rangerraz,schemaregistry,shellinabox,solr,solr-infra,spark,sqoop,streams_messaging_manager,streams_replication_manager,superset,yarn-ce,zeppelin,zookeeper}/* /var/log/{atlas,catalogd,cdsw,cloudera-scm-agent,cloudera-scm-alertpublisher,cloudera-scm-eventserver,cloudera-scm-firehose,cloudera-scm-server,cruisecontrol,flink,hadoop-hdfs,hadoop-httpfs,hadoop-mapreduce,hadoop-yarn,hbase,hive,httpd,hue,hue-httpd,impalad,impala-minidumps,kafka,kudu,livy,nifi,nifiregistry,nifi-registry,oozie,schemaregistry,solr-infra,spark,statestore,streams-messaging-manager,yarn,zeppelin,zookeeper}/* /kudu/*/* /dfs/*/* /var/local/kafka/data/* /var/{lib,run}/docker/* /var/run/cloudera-scm-agent/process/*
+  rm -rf \
+    /var/lib/pgsql/${PG_VERSION}/data/* \
+    /var/lib/pgsql/${PG_VERSION}/initdb.log \
+    /var/kerberos/krb5kdc/* \
+    /var/lib/{accumulo,cdsw,cloudera-host-monitor,cloudera-scm-agent,cloudera-scm-eventserver,cloudera-scm-server,cloudera-service-monitor,cruise_control,druid,flink,hadoop-hdfs,hadoop-httpfs,hadoop-kms,hadoop-mapreduce,hadoop-yarn,hbase,hive,impala,kafka,knox,kudu,livy,nifi,nifiregistry,nifitoolkit,oozie,phoenix,ranger,rangerraz,schemaregistry,shellinabox,solr,solr-infra,spark,sqoop,streams_messaging_manager,streams_replication_manager,superset,yarn-ce,zeppelin,zookeeper}/* \
+    /var/log/{atlas,catalogd,cdsw,cloudera-scm-agent,cloudera-scm-alertpublisher,cloudera-scm-eventserver,cloudera-scm-firehose,cloudera-scm-server,cruisecontrol,flink,hadoop-hdfs,hadoop-httpfs,hadoop-mapreduce,hadoop-yarn,hbase,hive,httpd,hue,hue-httpd,impalad,impala-minidumps,kafka,kudu,livy,nifi,nifiregistry,nifi-registry,oozie,schemaregistry,solr-infra,spark,statestore,streams-messaging-manager,yarn,zeppelin,zookeeper}/* \
+    /kudu/*/* \
+    /dfs/*/* \
+    /yarn/* \
+    /var/local/kafka/data/* \
+    /var/{lib,run}/docker/* \
+    /var/run/cloudera-scm-agent/process/*
 }
 
 function create_peer_kafka_external_account() {
@@ -1274,14 +1311,15 @@ function enable_py3() {
 function get_public_ip() {
   local retries=5
   while [[ $retries -gt 0 ]]; do
-    export PUBLIC_IP=$(curl -sL http://ifconfig.me || curl -sL http://api.ipify.org/ || curl -sL https://ipinfo.io/ip)
-    if [[ $PUBLIC_IP =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+    local public_ip=$(curl -sL http://ifconfig.me || curl -sL http://api.ipify.org/ || curl -sL https://ipinfo.io/ip)
+    if [[ $public_ip =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+      echo $public_ip
       return
     fi
     sleep 5
     retries=$((retries - 1))
   done
-  echo "ERROR: Could not retrieve public IP for this instance. Probably a transient error. Please try again."
+  echo "ERROR: Could not retrieve public IP for this instance. Probably a transient error. Please try again." >&2
   exit 1
 }
 
@@ -1321,8 +1359,6 @@ function deploy_os_prereqs() {
 
 function deploy_cluster_prereqs() {
   log_status "Installing cluster dependencies"
-  # nodejs, npm and forever are SMM dependencies - required by older versions
-  curl -sL https://rpm.nodesource.com/setup_10.x | sed -E '/(script_deprecation_warning|node_deprecation_warning)$/d' | sudo bash -
   # Install RH python repo for CentOS
   yum_install centos-release-scl
   # Install dependencies
@@ -1451,6 +1487,7 @@ EOF
     sed -i "/HOSTNAME=/ d" /etc/sysconfig/network
   fi
   echo "HOSTNAME=${CLUSTER_HOST}" >> /etc/sysconfig/network
+  export HOSTNAME=${CLUSTER_HOST}
 
 }
 
@@ -1775,53 +1812,67 @@ function wait_for_parcel_state() {
 }
 
 function set_java_alternatives() {
-  local link_dir=/usr/bin
-  local java_home=$(ls -1d /usr/java/*-cloudera 2>/dev/null| sort | tail -1 || true)
-  if [[ $java_home != "" && -d $java_home ]]; then
-    local jre_dir=$java_home/jre/bin
-    local jdk_dir=$java_home/bin
-    
-    sudo alternatives --install $link_dir/java java $jre_dir/java 20000  \
-      --slave $link_dir/keytool     keytool     $jre_dir/keytool         \
-      --slave $link_dir/orbd        orbd        $jre_dir/orbd            \
-      --slave $link_dir/pack200     pack200     $jre_dir/pack200         \
-      --slave $link_dir/rmid        rmid        $jre_dir/rmid            \
-      --slave $link_dir/rmiregistry rmiregistry $jre_dir/rmiregistry     \
-      --slave $link_dir/servertool  servertool  $jre_dir/servertool      \
-      --slave $link_dir/tnameserv   tnameserv   $jre_dir/tnameserv       \
-      --slave $link_dir/unpack200   unpack200   $jre_dir/unpack200       \
-      --slave $link_dir/jcontrol    jcontrol    $jre_dir/jcontrol        \
-      --slave $link_dir/javaws      javaws      $jre_dir/javaws
-    
-    sudo alternatives --install $link_dir/javac javac $jdk_dir/javac 20000  \
-      --slave $link_dir/appletviewer appletviewer $jdk_dir/appletviewer     \
-      --slave $link_dir/apt          apt          $jdk_dir/apt              \
-      --slave $link_dir/extcheck     extcheck     $jdk_dir/extcheck         \
-      --slave $link_dir/idlj         idlj         $jdk_dir/idlj             \
-      --slave $link_dir/jar          jar          $jdk_dir/jar              \
-      --slave $link_dir/jarsigner    jarsigner    $jdk_dir/jarsigner        \
-      --slave $link_dir/javadoc      javadoc      $jdk_dir/javadoc          \
-      --slave $link_dir/javah        javah        $jdk_dir/javah            \
-      --slave $link_dir/javap        javap        $jdk_dir/javap            \
-      --slave $link_dir/jcmd         jcmd         $jdk_dir/jcmd             \
-      --slave $link_dir/jconsole     jconsole     $jdk_dir/jconsole         \
-      --slave $link_dir/jdb          jdb          $jdk_dir/jdb              \
-      --slave $link_dir/jhat         jhat         $jdk_dir/jhat             \
-      --slave $link_dir/jinfo        jinfo        $jdk_dir/jinfo            \
-      --slave $link_dir/jmap         jmap         $jdk_dir/jmap             \
-      --slave $link_dir/jps          jps          $jdk_dir/jps              \
-      --slave $link_dir/jrunscript   jrunscript   $jdk_dir/jrunscript       \
-      --slave $link_dir/jsadebugd    jsadebugd    $jdk_dir/jsadebugd        \
-      --slave $link_dir/jstack       jstack       $jdk_dir/jstack           \
-      --slave $link_dir/jstat        jstat        $jdk_dir/jstat            \
-      --slave $link_dir/jstatd       jstatd       $jdk_dir/jstatd           \
-      --slave $link_dir/native2ascii native2ascii $jdk_dir/native2ascii     \
-      --slave $link_dir/policytool   policytool   $jdk_dir/policytool       \
-      --slave $link_dir/rmic         rmic         $jdk_dir/rmic             \
-      --slave $link_dir/schemagen    schemagen    $jdk_dir/schemagen        \
-      --slave $link_dir/serialver    serialver    $jdk_dir/serialver        \
-      --slave $link_dir/wsgen        wsgen        $jdk_dir/wsgen            \
-      --slave $link_dir/wsimport     wsimport     $jdk_dir/wsimport         \
-      --slave $link_dir/xjc          xjc          $jdk_dir/xjc
+  local java_home=${1:-$(ls -1d /usr/java/*-cloudera 2>/dev/null| sort | tail -1 || true)}
+  local priority=${2:-9999999}
+
+  if [[ -n $java_home && -d $java_home ]]; then
+    java_home=$(readlink -f ${java_home})
+    local link_dir=/usr/bin
+    local jre_bin_dir
+    local jdk_bin_dir
+    jdk_bin_dir=$(readlink -f "${java_home}/bin")
+    jre_bin_dir=$(readlink -f "${java_home}/jre/bin" || true)
+
+    local bin_dirs=()
+    for bin_dir in $jre_bin_dir $jdk_bin_dir; do
+      if [[ -d $bin_dir ]]; then
+        bin_dirs+=("$bin_dir")
+      fi
+    done
+    java_path=$(find "${bin_dirs[@]}" -name java | head -1)
+    local cmd=(sudo alternatives --install "$link_dir/java" java "$java_path" "${priority}")
+
+    local names="|java|"
+    for path in $(find "${bin_dirs[@]}" ! -type d -perm -001 | sort); do
+      name=$(basename "$path")
+      [[ $names == *"|$name|"* ]] && continue
+      cmd+=(--slave "$link_dir/$name" "$name" "$path")
+    done
+
+    "${cmd[@]}"
+
+    sudo alternatives --install "${JDK_BASE}/jre-openjdk" jre_openjdk "${java_home}" 9999999
+  fi
+}
+
+function install_java() {
+  if [[ -n ${JAVA_PACKAGE_NAME:-} ]]; then
+    yum_install "${JAVA_PACKAGE_NAME}"
+    if ! javac; then
+      set_java_alternatives
+    fi
+  fi
+  if [[ -n ${OPENJDK_VERSION:-} ]]; then
+    local major_version=${OPENJDK_VERSION%%.*}
+    if [[ $major_version -ne 11 && $major_version -ne 17 ]]; then
+      echo "ERROR: Only OpenJDK versions 11.x and 17.x can be installed through the property OPENJDK_VERSION."
+      echo "ERROR: The version specified was ${OPENJDK_VERSION}."
+      echo "ERROR: For other versions, find an available package for CentOS and use the JAVA_PACKAGE_NAME property."
+      exit 1
+    fi
+    local tmp_tarball="/tmp/openjdk.tar.gz"
+    local openjdk_url
+    openjdk_url=$(curl -sL "$OPENJDK_ARCHIVE" | grep -o 'http[^"]*openjdk-'"${OPENJDK_VERSION}"'_linux-x64[^"]*bin.tar.gz' | head -1 || true)
+    if [[ -z ${openjdk_url:-} ]]; then
+      echo "ERROR: The OpenJDK version ${OPENJDK_VERSION} could not be found in ${OPENJDK_ARCHIVE}."
+      echo "ERROR: Choose an option available in the archive and try again."
+      exit 1
+    fi
+    retry_if_needed 5 5 "wget --progress=dot:giga '$openjdk_url' -O '$tmp_tarball'"
+    local java_home="${JDK_BASE}/jdk-${major_version}"
+    mkdir -p "$java_home"
+    tar -C "$java_home" --strip-components=1 -xvf "$tmp_tarball"
+    rm -f $tmp_tarball
+    set_java_alternatives "$java_home"
   fi
 }
