@@ -35,6 +35,17 @@ if [[ $ACTION == "install-prereqs" ]]; then
   fi
 
   deploy_os_prereqs
+  # Install dependencies on python38 for ECS 1.5.2
+  yum_install centos-release-scl
+  yum_install rh-python38 rh-python38-python-devel
+  # Enable python38 and add yaml
+  enable_py3
+  pip install --quiet --upgrade pip pyyaml
+  rm -f /usr/bin/python3 /usr/bin/pip3 /usr/local/bin/python3.8
+  ln -s /opt/rh/rh-python38/root/bin/python3 /usr/bin/python3
+  ln -s /opt/rh/rh-python38/root/bin/pip3 /usr/bin/pip3
+  ln -s /opt/rh/rh-python38/root/usr/bin/python3.8 /usr/local/bin/python3.8
+  
   complete_host_initialization "ecs"
 
   log_status "Ensure domain search list only contains ec2.internal, and not nip.io"
@@ -64,8 +75,11 @@ EOF
   create_certs "$IPA_HOST"
 
   log_status "ECS: Installing k9s"
-  yum_install golang
+  # install golang from tar
   cd /tmp
+  wget https://go.dev/dl/go1.21.5.linux-amd64.tar.gz
+  rm -rf /usr/local/go && tar -C /usr/local -xzf go1.21.5.linux-amd64.tar.gz
+  export PATH=$PATH:/usr/local/go/bin
   git clone https://github.com/derailed/k9s
   cd k9s/
   make build
