@@ -22,14 +22,14 @@ resource "aws_instance" "cluster" {
   }
 
   root_block_device {
-    volume_type           = "gp2"
+    volume_type           = "gp3"
     volume_size           = "200"
     delete_on_termination = true
   }
 
   ebs_block_device {
     device_name           = "/dev/sdf"
-    volume_type           = "gp2"
+    volume_type           = "gp3"
     volume_size           = "200"
   }
 
@@ -85,7 +85,7 @@ resource "aws_instance" "web" {
   ]
 
   root_block_device {
-    volume_type           = "gp2"
+    volume_type           = "gp3"
     volume_size           = "20"
     delete_on_termination = true
   }
@@ -138,7 +138,7 @@ resource "aws_instance" "ipa" {
   ]
 
   root_block_device {
-    volume_type           = "gp2"
+    volume_type           = "gp3"
     volume_size           = "20"
     delete_on_termination = true
   }
@@ -201,7 +201,7 @@ resource "aws_instance" "ecs" {
   }
 
   root_block_device {
-    volume_type           = "gp2"
+    volume_type           = "gp3"
     volume_size           = "500"
     delete_on_termination = true
   }
