@@ -18,6 +18,12 @@ NOTE: The command below will undo everything done in the cluster in previous wor
 ----
 MAPBOX_TOKEN=<your_mapbox_token> /tmp/resources/reset-to-lab.sh fraud 99
 ----
+// Comments:
+// Latest tries with MapBox indicate: 
+// a) troubles when signing up. Only after several tries I was Able to sign up
+// b) Various errors encountered when running the reset-to-lab script
+// First 502 "bad gateway", then 404 page not found.
+// Tried to generate an access key with all the "hidden scopes" enabled, no more sucess with that
 
 == Demo points
 
